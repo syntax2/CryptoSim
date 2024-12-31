@@ -38,11 +38,6 @@ services:
       - redis
       - rng
       - hasher
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   redis:
     image: redis:7.2-alpine
@@ -50,19 +45,13 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   webui:
     build: ./services/webui
     ports:
-      - "3000:3000"
+      - "3000:80"  # Map container port 80 to host port 3000
     environment:
-      - WORKER_SERVICE_URL=http://worker:8002
-      - REDIS_HOST=redis
+      - REACT_APP_WORKER_SERVICE_URL=http://localhost:8002
     depends_on:
       - worker
       - redis

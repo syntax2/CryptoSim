@@ -40,7 +40,7 @@ const App = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch("http://localhost:8002/stats");
+      const response = await fetch("/api/stats");
       const data = await response.json();
       setMiningStats(data);
 
@@ -53,16 +53,16 @@ const App = () => {
             rate: data.miningRate,
           },
         ].slice(-20)
-      ); // Keep last 20 data points
+      );
     } catch (error) {
       console.error("Error fetching stats:", error);
     }
   };
 
   const toggleMining = async () => {
-    const endpoint = miningStats.isMining ? "/stop" : "/start";
+    const endpoint = miningStats.isMining ? "/api/stop" : "/api/start";
     try {
-      await fetch(`http://localhost:8002${endpoint}`, { method: "POST" });
+      await fetch(endpoint, { method: "POST" });
       fetchStats();
     } catch (error) {
       console.error("Error toggling mining:", error);
