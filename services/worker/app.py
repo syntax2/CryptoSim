@@ -1,11 +1,14 @@
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+# from numpy import histogram
 import aiohttp
 import asyncio
 import redis.asyncio as redis
 import os
 import json
 from datetime import datetime
+from prometheus_client import Counter, Gauge, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 import time
 import uvicorn
 import logging
@@ -13,6 +16,16 @@ from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Prometheus metrics
+BLOCKS_MINED = Counter('cryptosim_blocks_mined_total', 'Total number of blocks mined')
+MINING_RATE = Gauge('cryptosim_mining_rate', 'Current mining rate in blocks per second')
+MINING_ACTIVE = Gauge('cryptosim_mining_active', 'Mining status (1 = active, 0 = inactive)')
+
+# MINING_DURATION = histogram('cryptosim_mining_duration_seconds', 'Time spent mining each block', buckets=[0.1, 0.5, 1.0, 2.0, 5.0])
+HASH_REQUEST_ERRORS = Counter('cryptosim_hash_request_errors_total', 'Total number of failed hash requests')
+RNG_REQUEST_ERRORS = Counter('cryptosim_rng_request_errors_total', 'Total number of failed RNG requests')
 
 app = FastAPI(title="Worker Service")
 
@@ -30,6 +43,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize Prometheus metrics
+Instrumentator().instrument(app).expose(app)
 
 # Global variables
 redis_client: Optional[redis.Redis] = None
@@ -62,29 +78,55 @@ async def mine_block():
             blocks_mined = 0
             
             while is_mining:
+                try:
+                    async with session.get(f"{RNG_SERVICE_URL}/random") as rng_response:
+                        if rng_response.status != 200:
+                            RNG_REQUEST_ERRORS.inc()
+                            continue
+                        number = (await rng_response.json())["number"]
+                except Exception as e:
+                    RNG_REQUEST_ERRORS.inc()
+                    logger.error(f"RNG request error: {str(e)}")
+                    continue
+
+                try:
+                    async with session.post(
+                        f"{HASHER_SERVICE_URL}/hash",
+                        json={"number": number, "complexity": 1}
+                    ) as hash_response:
+                        if hash_response.status != 200:
+                            HASH_REQUEST_ERRORS.inc()
+                            continue
+                        hash_result = await hash_response.json()
+                except Exception as e:
+                    HASH_REQUEST_ERRORS.inc()
+                    logger.error(f"Hash request error: {str(e)}")
+                    continue
                 # Get random number
-                async with session.get(f"{RNG_SERVICE_URL}/random") as rng_response:
-                    if rng_response.status != 200:
-                        continue
-                    number = (await rng_response.json())["number"]
+                # async with session.get(f"{RNG_SERVICE_URL}/random") as rng_response:
+                #     if rng_response.status != 200:
+                #         continue
+                #     number = (await rng_response.json())["number"]
                 
-                # Hash the number
-                async with session.post(
-                    f"{HASHER_SERVICE_URL}/hash",
-                    json={"number": number, "complexity": 1}
-                ) as hash_response:
-                    if hash_response.status != 200:
-                        continue
+                # # Hash the number
+                # async with session.post(
+                #     f"{HASHER_SERVICE_URL}/hash",
+                #     json={"number": number, "complexity": 1}
+                # ) as hash_response:
+                #     if hash_response.status != 200:
+                #         continue
                 
                 # Update stats
                 blocks_mined += 1
                 await redis.incr("total_blocks")
+                BLOCKS_MINED.inc()  # Update Prometheus metric
                 
                 # Calculate and update mining rate every second
                 elapsed = time.time() - start_time
                 if elapsed >= 1.0:
                     mining_rate = blocks_mined / elapsed
                     await redis.set("mining_rate", str(mining_rate))
+                    MINING_RATE.set(mining_rate)  # Update Prometheus metric
                     blocks_mined = 0
                     start_time = time.time()
                 

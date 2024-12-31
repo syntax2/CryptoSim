@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s  # More frequent scraping for our real-time application
+  evaluation_interval: 5s
+
+# Rules for alerting (we'll keep them simple for now)
+rule_files:
+  # - "rules.yml"  # Uncomment if you add alerting rules later
+
+scrape_configs:
+  - job_name: 'cryptosim-worker'
+    static_configs:
+      - targets: ['worker:8002']  # Target our worker service
+    metrics_path: '/metrics'      # FastAPI exposes metrics here
+
+  - job_name: 'cryptosim-redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
