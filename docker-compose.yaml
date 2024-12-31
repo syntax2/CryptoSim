@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  rng:
+    build: ./services/rng
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hasher:
+    build: ./services/hasher
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: ./services/worker
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - REDIS_HOST=redis
+      - RNG_SERVICE_URL=http://rng:8000
+      - HASHER_SERVICE_URL=http://hasher:8001
+    depends_on:
+      - redis
+      - rng
+      - hasher
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  webui:
+    build: ./services/webui
+    ports:
+      - "3000:3000"
+    environment:
+      - WORKER_SERVICE_URL=http://worker:8002
+      - REDIS_HOST=redis
+    depends_on:
+      - worker
+      - redis
+
+volumes:
+  redis_data:
